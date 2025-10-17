@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # ============================================================
-# MultiCloud Security Assessment Runner - v4.1.6-rev2 (fixed)
+# Multi Cloud Security Assessment Runner - v4.1.6-rev2 (fixed)
 # Author: Wagner Azevedo
-# Created on: 2025-10-16T00:29:00Z
+# Created on: 2025-10-17T00:29:00Z
 # Changes in this revision:
 # - FIX: Variable protection in the log() function to prevent 'unbound variable' (set -u).
 # - Simplified and more robust argument logic.
@@ -35,7 +35,7 @@ ACCOUNT_ID="${3:-undefined}"
 set -u
 
 AWS_REGION="${AWS_REGION:-us-east-1}"
-S3_BUCKET="${S3_BUCKET:-multicloud-assessments}"
+S3_BUCKET="${S3_BUCKET:-agentic-mcsp-assessments}"
 LOG_LEVEL="${LOG_LEVEL:-INFO}"
 
 OUTPUT_DIR="/tmp/output-${SESSION_ID}"
@@ -120,7 +120,7 @@ authenticate() {
       prowler aws \
         ---output-formats csv html json-asff \
         --compliance aws_well_architected_framework_reliability_pillar_aws aws_well_architected_framework_security_pillar_aws iso27001_2022_aws mitre_attack_aws nist_800_53_revision_5_aws prowler_threatscore_aws soc2_aws \
-        --output-filename "multicloudassessment-aws-${ACCOUNT_ID}.json" \
+        --output-filename "agentic-mcsp-aws-${ACCOUNT_ID}.json" \
         --output-directory "$OUTPUT_DIR" \
         --no-banner \
         --log-level "$LOG_LEVEL" || log "WARN" "⚠️ Partial failure in AWS scan"
@@ -131,7 +131,7 @@ authenticate() {
       log "INFO" "☁️ Starting Azure Authentication..."
       CREDS_PATH="/clients/$CLIENT_NAME/azure/$ACCOUNT_ID/credentials/access"
       CREDS_RAW="$(get_ssm_value "$CREDS_PATH")"
-      [[ -z "$CREDS_RAW" ]] && { log "ERROR" "❌ Credenciais Azure não encontradas em $CREDS_PATH"; return 1; }
+      [[ -z "$CREDS_RAW" ]] && { log "ERROR" "❌ Azure credentials not found at $CREDS_PATH"; return 1; }
 
       CLEAN_JSON="$(echo "$CREDS_RAW" | jq -r 'fromjson? // .')"
       export AZURE_TENANT_ID="$(echo "$CLEAN_JSON" | jq -r '.AZURE_TENANT_ID')"
@@ -151,7 +151,7 @@ authenticate() {
         --sp-env-auth \
         --output-formats csv html json-asff \
         --compliance cis_4.0_azure iso27001_2022_azure  mitre_attack_azure prowler_threatscore_azure soc2_azure \
-        --output-filename "multicloudassessment-azure-${ACCOUNT_ID}.json" \
+        --output-filename "agentic-mcsp-azure-${ACCOUNT_ID}.json" \
         --output-directory "$OUTPUT_DIR" \
         --no-banner \
         --log-level "$LOG_LEVEL" || log "WARN" "⚠️ Partial failure in Azure scan"
@@ -190,7 +190,7 @@ authenticate() {
         --project-id "$ACCOUNT_ID" \
         --output-formats csv html json-asff \
         --compliance cis_4.0_gcp iso27001_2022_gcp  mitre_attack_gcp prowler_threatscore_gcp soc2_gcp \
-        --output-filename "multicloudassessment-gcp-${ACCOUNT_ID}.json" \
+        --output-filename "agentic-mcsp-gcp-${ACCOUNT_ID}.json" \
         --output-directory "$OUTPUT_DIR" \
         --skip-api-check \
         --no-banner \
