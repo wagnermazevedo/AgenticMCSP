@@ -1,15 +1,15 @@
 #!/usr/bin/env bash
 # ============================================================
 # MultiCloud Security Assessment Runner - v4.1.6-rev2 (fixed)
-# Autor: Wagner Azevedo
-# Criado em: 2025-10-16T00:29:00Z
-# Alterações nesta revisão:
-#   - CORREÇÃO: Proteção de variáveis na função log() para evitar 'unbound variable' (set -u).
-#   - Lógica de argumentos simplificada e mais robusta.
-# ============================================================
+# Author: Wagner Azevedo
+# Created on: 2025-10-16T00:29:00Z
+# Changes in this revision:
+# - FIX: Variable protection in the log() function to prevent 'unbound variable' (set -u).
+# - Simplified and more robust argument logic.
+# ==============================================================
 
 set -euo pipefail
-# Mantemos set -u desativado APENAS para o tratamento dos argumentos iniciais.
+# We keep set -u disabled ONLY for handling initial arguments.
 set +u
 export LANG=C.UTF-8
 
@@ -20,17 +20,18 @@ START_TS=$(date +%s)
 
 VERSION_REV="v4.1.6-rev2-$START_TIME"
 
-echo "[RUNNER:$SESSION_ID] $START_TIME [INFO] 🧭 Iniciando execução do Multicloud Assessment Runner $VERSION_REV (criado em $CREATED_AT)"
+echo "[RUNNER:$SESSION_ID] $START_TIME [INFO] 🧭 Starting the Multicloud Assessment Runner run $VERSION_REV (created in $CREATED_AT)"
 
-# === Tratamento e atribuição de Variáveis obrigatórias (mais robusto) ===
-# Se o argumento não existir, ele assume o valor padrão.
-# Isso é seguro porque set -u está desligado (+u).
+# === Mandatory Variable Handling and Assignment (More Robust) ===
+# If the argument does not exist, it assumes the default value.
+# This is safe because set -u is off (+u).
+
 CLIENT_NAME="${1:-unknown}"
 CLOUD_PROVIDER="${2:-unknown}"
 ACCOUNT_ID="${3:-undefined}"
 
-# Reativa o modo estrito para o restante do script
-# O erro '$2: unbound variable' não ocorrerá mais aqui, pois $2 (CLOUD_PROVIDER) foi definido.
+# Re-enable strict mode for the remainder of the script
+# The '$2: unbound variable' error will no longer occur here since $2 (CLOUD_PROVIDER) has been defined.
 set -u
 
 AWS_REGION="${AWS_REGION:-us-east-1}"
@@ -40,10 +41,10 @@ LOG_LEVEL="${LOG_LEVEL:-INFO}"
 OUTPUT_DIR="/tmp/output-${SESSION_ID}"
 mkdir -p "$OUTPUT_DIR"
 
-# === Helper de log (CORREÇÃO DE UNBOUND VARIABLE) ===
+# === Logging Helper (UNBOUND VARIABLE FIX) ===
 log() {
-  # Proteção com ${1:-} e ${2:-} garante que set -u não falhe se um argumento
-  # for omitido na chamada da função.
+  # Protection with ${1:-} and ${2:-} ensures that set -u does not fail if an argument
+  # is omitted in the function call.
   local LEVEL="${1:-}" 
   local MESSAGE="${2:-}"
   local CONTEXT=""
@@ -54,41 +55,41 @@ log() {
 
   local TS
   TS=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
-  # Linha de log agora segura contra erros de unbound variable
+  # Log line now secure against unbound variable errors
   echo "[RUNNER:$SESSION_ID] $TS [$LEVEL] ${CONTEXT}${MESSAGE}"
 }
 
 # ============================================================
-# 🔧 Utilitários AWS
+# 🔧 AWS Utilities
 # ============================================================
 
 aws_cli() { aws --region "$AWS_REGION" "$@"; }
 
 get_ssm_value() {
   local path="$1"
-  # Proteção: ${path:-} garante que o script não falhe se get_ssm_value for chamado sem argumento
+  # Protection: ${path:-} ensures that the script does not fail if get_ssm_value is called without an argument
   aws_cli ssm get-parameter --with-decryption --name "${path:-}" \
     --query "Parameter.Value" --output text 2>/dev/null || echo ""
 }
 
 # ============================================================
-# 🔐 Autenticação MultiCloud (NÃO ALTERADA)
+# 🔐 MultiCloud Authentication
 # ============================================================
 
 authenticate() {
   case "$CLOUD_PROVIDER" in
     aws)
-      log "INFO" "☁️ Iniciando autenticação AWS (modo regeneração automática de token)..."
+      log "INFO" "☁️ Starting AWS authentication (automatic token regeneration mode)..."
 
       ROLE_PATH="/clients/$CLIENT_NAME/aws/$ACCOUNT_ID/role"
       ROLE_ARN="$(get_ssm_value "$ROLE_PATH")"
 
       if [[ -z "$ROLE_ARN" ]]; then
-        log "ERROR" "❌ Nenhum Role ARN encontrado em $ROLE_PATH. Abortando execução."
+        log "ERROR" "❌ No Role ARN found in $ROLE_PATH. Aborting execution."
         return 1
       fi
 
-      log "INFO" "🔑 Gerando novas credenciais temporárias via STS assume-role..."
+      log "INFO" "🔑 Generating new temporary credentials via STS assume-role..."
       CREDS_JSON="$(aws sts assume-role \
         --role-arn "$ROLE_ARN" \
         --role-session-name "MulticloudAssessment-${SESSION_ID}" \
@@ -110,24 +111,24 @@ authenticate() {
           --value "$UPDATED_CREDS_JSON" \
           --type "SecureString" \
           --overwrite >/dev/null 2>&1; then
-        log "INFO" "💾 Novo token STS gravado com sucesso em SSM (overwrite realizado)."
+        log "INFO" "💾 New STS token successfully written to SSM (overwrite performed)."
       else
-        log "WARN" "⚠️ Falha ao atualizar token STS no SSM (verifique permissões)."
+        log "WARN" "⚠️ Failed to refresh STS token in SSM (check permissions)."
       fi
 
-      log "INFO" "✅ Autenticação AWS concluída. Executando Prowler..."
+      log "INFO" "✅ AWS authentication completed. Running Agentic Cloud Assessment..."
       prowler aws \
         ---output-formats csv html json-asff \
         --compliance aws_well_architected_framework_reliability_pillar_aws aws_well_architected_framework_security_pillar_aws iso27001_2022_aws mitre_attack_aws nist_800_53_revision_5_aws prowler_threatscore_aws soc2_aws \
         --output-filename "multicloudassessment-aws-${ACCOUNT_ID}.json" \
         --output-directory "$OUTPUT_DIR" \
         --no-banner \
-        --log-level "$LOG_LEVEL" || log "WARN" "⚠️ Falha parcial no scan AWS"
+        --log-level "$LOG_LEVEL" || log "WARN" "⚠️ Partial failure in AWS scan"
       ;;
 
 
     azure)
-      log "INFO" "☁️ Iniciando autenticação Azure..."
+      log "INFO" "☁️ Starting Azure Authentication..."
       CREDS_PATH="/clients/$CLIENT_NAME/azure/$ACCOUNT_ID/credentials/access"
       CREDS_RAW="$(get_ssm_value "$CREDS_PATH")"
       [[ -z "$CREDS_RAW" ]] && { log "ERROR" "❌ Credenciais Azure não encontradas em $CREDS_PATH"; return 1; }
@@ -139,13 +140,13 @@ authenticate() {
       export AZURE_SUBSCRIPTION_ID="$(echo "$CLEAN_JSON" | jq -r '.AZURE_SUBSCRIPTION_ID')"
 
       if az login --service-principal -u "$AZURE_CLIENT_ID" -p "$AZURE_CLIENT_SECRET" --tenant "$AZURE_TENANT_ID" >/dev/null 2>&1; then
-        log "INFO" "✅ Autenticação Azure concluída."
+        log "INFO" "✅ Azure authentication completed."
       else
-        log "ERROR" "❌ Falha na autenticação Azure."
+        log "ERROR" "❌ Azure authentication failed."
         return 1
       fi
 
-      log "INFO" "▶️ Executando Prowler Azure..."
+      log "INFO" "▶️ Executando Agentic Cloud Assessment Azure..."
       prowler azure \
         --sp-env-auth \
         --output-formats csv html json-asff \
@@ -153,11 +154,11 @@ authenticate() {
         --output-filename "multicloudassessment-azure-${ACCOUNT_ID}.json" \
         --output-directory "$OUTPUT_DIR" \
         --no-banner \
-        --log-level "$LOG_LEVEL" || log "WARN" "⚠️ Falha parcial no scan Azure"
+        --log-level "$LOG_LEVEL" || log "WARN" "⚠️ Partial failure in Azure scan"
       ;;
 
     gcp)
-      log "INFO" "🌍 Iniciando autenticação GCP..."
+      log "INFO" "🌍 Starting GCP authentication..."
       CREDS_PATH_BASE="/clients/$CLIENT_NAME/gcp"
 
       FILTERED_PARAM=$(aws_cli ssm describe-parameters \
@@ -165,11 +166,11 @@ authenticate() {
         --query "Parameters[?contains(Name, '/credentials/access')].Name" \
         --output text | tr '\t' '\n' | head -n 1)
 
-      [[ -z "$FILTERED_PARAM" ]] && { log "ERROR" "❌ Nenhum parâmetro encontrado no SSM para $ACCOUNT_ID."; return 1; }
+      [[ -z "$FILTERED_PARAM" ]] && { log "ERROR" "❌ No parameters found in SSM for $ACCOUNT_ID."; return 1; }
 
       CREDS_RAW="$(aws_cli ssm get-parameter --with-decryption --name "$FILTERED_PARAM" \
         --query "Parameter.Value" --output text 2>/dev/null || true)"
-      [[ -z "$CREDS_RAW" ]] && { log "ERROR" "❌ Credenciais GCP não encontradas em $FILTERED_PARAM"; return 1; }
+      [[ -z "$CREDS_RAW" ]] && { log "ERROR" "❌ GCP credentials not found in $FILTERED_PARAM"; return 1; }
 
       CLEAN_JSON="$(echo "$CREDS_RAW" | jq -r 'fromjson? // .')"
       TMP_KEY="/tmp/gcp-${ACCOUNT_ID}.json"
@@ -178,13 +179,13 @@ authenticate() {
 
       if gcloud auth activate-service-account --key-file="$TMP_KEY" --quiet; then
         gcloud config set project "$ACCOUNT_ID" --quiet
-        log "INFO" "✅ Autenticação GCP concluída."
+        log "INFO" "✅ GCP authentication completed."
       else
-        log "ERROR" "❌ Falha na autenticação GCP."
+        log "ERROR" "❌ GCP authentication failed."
         return 1
       fi
 
-      log "INFO" "▶️ Executando Prowler GCP..."
+      log "INFO" "▶️ Running Agentic Cloud Assessment GCP..."
       prowler gcp \
         --project-id "$ACCOUNT_ID" \
         --output-formats csv html json-asff \
@@ -193,51 +194,51 @@ authenticate() {
         --output-directory "$OUTPUT_DIR" \
         --skip-api-check \
         --no-banner \
-        --log-level "$LOG_LEVEL" || log "WARN" "⚠️ Falha parcial no scan GCP"
+        --log-level "$LOG_LEVEL" || log "WARN" "⚠️ Partial failure in GCP scan"
       rm -f "$TMP_KEY" || true
       ;;
   esac
 }
 
 # ============================================================
-# 🚀 Execução principal (NÃO ALTERADA)
+# 🚀 Main execution 
 # ============================================================
 
 if ! authenticate; then
-  log "ERROR" "⚠️ Falha na autenticação. Encerrando execução."
+  log "ERROR" "⚠️ Authentication failed. Terminating execution."
   exit 1
 fi
 
-# Upload automático para S3
+# Automatic upload to S3
 TIMESTAMP=$(date -u +"%Y%m%dT%H%M%SZ")
 S3_PATH="s3://${S3_BUCKET}/${CLIENT_NAME}/${CLOUD_PROVIDER}/${ACCOUNT_ID}/${TIMESTAMP}/"
 
-# === Garante uso da AWS CLI global (não Poetry) ===
+# === Ensures use of the global AWS CLI (not Poetry) ===
 export PATH=/usr/local/bin:/usr/bin:/bin
 
-# === Restaura credenciais originais do ECS (origem) ===
-log "INFO" "♻️ Revertendo credenciais para a conta de origem (ECS Task Role) para upload no S3..."
+# === Restores original ECS credentials (source) ===
+log "INFO" "♻️ Reverting credentials to source account (ECS Task Role) for upload to S3..."
 unset AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_SESSION_TOKEN
 
-# Diagnóstico opcional — exibe qual conta está ativa agora
-aws sts get-caller-identity --output text | awk '{print "🆔 Conta ativa para upload:", $3}' || true
+# Optional Diagnostics — Displays which account is active now
+aws sts get-caller-identity --output text | awk '{print "🆔 Active account for upload:", $3}' || true
 
-# Executa o upload com controle de propriedade do bucket
-echo "Upload dos artefatos no caminho $S3_PATH" # Corrigido de $PATH para $S3_PATH
+# Perform upload with bucket ownership control
+echo "Upload artifacts on the path $S3_PATH" # Fixed from $PATH to $S3_PATH
 cd /
 if aws s3 cp "$OUTPUT_DIR/" "$S3_PATH" \
     --recursive \
     --only-show-errors \
     --acl bucket-owner-full-control ; then
-  log "INFO" "☁️ Relatórios enviados com sucesso para $S3_PATH"
+  log "INFO" "☁️ Reports successfully sent to $S3_PATH"
 else
-  log "WARN" "⚠️ Falha no upload para S3 (verifique permissões)."
+  log "WARN" "⚠️ Upload to S3 failed (check permissions)."
 fi
 
 
 END_TS=$(date +%s)
 DURATION=$((END_TS - START_TS))
-log "INFO" "⏱️ Execução finalizada em ${DURATION}s."
+log "INFO" "⏱️ Execution completed on ${DURATION}s."
 
 log "========== 🔍 EXECUTION SUMMARY =========="
 log "INFO" "Session ID: $SESSION_ID"
