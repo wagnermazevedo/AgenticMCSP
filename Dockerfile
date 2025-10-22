@@ -1,5 +1,5 @@
 # ============================================================
-# MultiCloud Assessment Runner - FIXED (Python/Prowler 4.x)
+# MultiCloud Assessment Runner - FINAL FIX (Prowler 5.x)
 # ============================================================
 FROM public.ecr.aws/prowler-cloud/prowler:latest
 LABEL maintainer="Wagner Azevedo"
@@ -18,9 +18,9 @@ RUN apt-get update -y && \
 RUN rm -rf /home/prowler/.cache/pypoetry || true
 ENV PATH="/usr/local/bin:/usr/bin:/bin"
 
-# === Instala versão atual do Prowler (via PyPI oficial) ===
-RUN pip install --no-cache-dir prowler-cloud && \
-    ln -sf $(which prowler) /usr/local/bin/prowler
+# === Atualiza para a versão mais recente do Prowler ===
+RUN pip install --no-cache-dir --upgrade prowler-cloud && \
+    echo "[INFO] ✅ Installed Prowler version: $(prowler --version 2>&1)"
 
 # === Copia scripts ===
 COPY entrypoint.sh /usr/local/bin/entrypoint.sh
