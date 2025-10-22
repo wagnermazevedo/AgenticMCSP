@@ -12,29 +12,38 @@ phases:
       - echo "=== [INSTALL] Preparing build environment  ==="
       - aws --version
       - docker --version
+      - echo "Verificando identidade AWS..."
+      - aws sts get-caller-identity || { echo "❌ Falha ao obter identidade AWS. Verifique credenciais do CodeBuild."; exit 1; }
 
   pre_build:
     commands:
-      - echo "=== [LOGIN] ER authentication  ==="
-      - aws ecr get-login-password --region $AWS_DEFAULT_REGION | docker login --username AWS --password-stdin $ECR_REPO
+      - echo "=== [LOGIN] ECR authentication  ==="
+      - echo "Repositório alvo: $ECR_REPO"
+      - |
+        if aws ecr get-login-password --region $AWS_DEFAULT_REGION | docker login --username AWS --password-stdin $ECR_REPO; then
+          echo "✅ Login no ECR realizado com sucesso."
+        else
+          echo "❌ Falha no login do ECR. Verifique permissões (ecr:GetAuthorizationToken)."
+          exit 1
+        fi
 
   build:
     commands:
       - echo "=== [BUILD] Building image ==="
-      - docker build prune -af || true
-      - docker build --no-cache  -t agenticmcsp-repo:latest -f Dockerfile .
+      - docker builder prune -af || true
+      - echo "Removendo cache antigo e criando nova imagem..."
+      - docker build --no-cache -t agenticmcsp-repo:latest -f Dockerfile .
+      - echo "Tagging para envio..."
       - docker tag agenticmcsp-repo:latest $ECR_REPO:latest
-
 
   post_build:
     commands:
       - echo "=== [PUSH] Pushing image to ECR ==="
-      - docker push $ECR_REPO:latest
-      - echo "=== [VERIFY] Validando imagem ==="
-      - aws ecr describe-images --repository-name agenticmcsp-repo --region $AWS_DEFAULT_REGION --query 'imageDetails[].imageTags'
-      - echo "Build completo e imagem enviada com sucesso."
+      - docker push $ECR_REPO:latest || { echo "❌ Falha no push da imagem."; exit 1; }
+      - echo "=== [VERIFY] Validando imagem enviada ==="
+      - aws ecr describe-images --repository-name agenticmcsp-repo --region $AWS_DEFAULT_REGION --query 'imageDetails[].imageTags' --output table
+      - echo "✅ Build completo e imagem enviada com sucesso em $(date -u +"%Y-%m-%dT%H:%M:%SZ")"
 
 artifacts:
   files:
     - '**/*'
-
