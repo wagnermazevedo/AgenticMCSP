@@ -9,21 +9,18 @@ env:
 phases:
   install:
     commands:
-      - echo "=== [INSTALL] Preparing build environment  ==="
+      - echo "=== [INSTALL] Preparing build environment ==="
       - aws --version
       - docker --version
       - echo "Verificando identidade AWS..."
-      - aws sts get-caller-identity || { echo "❌ Falha ao obter identidade AWS. Verifique credenciais do CodeBuild."; exit 1; }
+      - aws sts get-caller-identity || { echo '❌ Falha ao obter identidade AWS. Verifique credenciais do CodeBuild.'; exit 1; }
 
   pre_build:
     commands:
-      - echo "=== [LOGIN] ECR authentication  ==="
+      - echo "=== [LOGIN] ECR authentication ==="
       - echo "Repositório alvo: $ECR_REPO"
       - echo "Fazendo login no ECR..."
-      - >
-        aws ecr get-login-password --region $AWS_DEFAULT_REGION |
-        docker login --username AWS --password-stdin $ECR_REPO ||
-        { echo "❌ Falha no login do ECR. Verifique permissões (ecr:GetAuthorizationToken)."; exit 1; }
+      - aws ecr get-login-password --region $AWS_DEFAULT_REGION | docker login --username AWS --password-stdin $ECR_REPO || { echo '❌ Falha no login do ECR. Verifique permissões (ecr:GetAuthorizationToken).'; exit 1; }
       - echo "✅ Login no ECR realizado com sucesso."
 
   build:
@@ -37,3 +34,12 @@ phases:
 
   post_build:
     commands:
+      - echo "=== [PUSH] Pushing image to ECR ==="
+      - docker push $ECR_REPO:latest || { echo '❌ Falha no push da imagem.'; exit 1; }
+      - echo "=== [VERIFY] Validando imagem enviada ==="
+      - aws ecr describe-images --repository-name agenticmcsp-repo --region $AWS_DEFAULT_REGION --query 'imageDetails[].imageTags' --output table
+      - echo "✅ Build completo e imagem enviada com sucesso em $(date -u +"%Y-%m-%dT%H:%M:%SZ")"
+
+artifacts:
+  files:
+    - '**/*'
