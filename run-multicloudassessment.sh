@@ -1,15 +1,17 @@
 #!/usr/bin/env bash
 # ============================================================
-# Agentic Multi Cloud Security Assessment Runner - v4.1.9-revA
+# Agentic Multi Cloud Security Assessment Runner - v4.2.1
 # Author: Wagner Azevedo
 # Created on: 2025-10-22T00:29:00Z
 # Changes in this revision:
-# - Added explicit log of the detected Prowler version before execution.
-# - FIX: automatic detection of Prowler 3.x/4.x parameter syntax.
-# - IMPROVED: detailed logging, duration, and S3 upload feedback.
+# - LOG: explicit prowler --version before each scan.
+# - FIX: dynamic output flag detection (-M vs --output-formats) with fallback.
+# - HARDEN: safe logging with set -u; clearer errors; consistent messages.
+# - KEEP: S3 upload & execution summary unchanged.
 # ============================================================
 
 set -euo pipefail
+# desabilita -u temporariamente para capturar args com default
 set +u
 export LANG=C.UTF-8
 
@@ -17,7 +19,7 @@ CREATED_AT="2025-10-22T00:29:00Z"
 SESSION_ID=$(uuidgen 2>/dev/null || cat /proc/sys/kernel/random/uuid)
 START_TIME=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
 START_TS=$(date +%s)
-VERSION_REV="v4.1.9-revA-$START_TIME"
+VERSION_REV="v4.2.1-$START_TIME"
 
 echo "[RUNNER:$SESSION_ID] $START_TIME [INFO] 🧭 Starting the Multicloud Assessment Runner $VERSION_REV (created in $CREATED_AT)"
 
@@ -26,6 +28,7 @@ CLIENT_NAME="${1:-unknown}"
 CLOUD_PROVIDER="${2:-unknown}"
 ACCOUNT_ID="${3:-undefined}"
 
+# Reativa -u para o restante do script
 set -u
 
 AWS_REGION="${AWS_REGION:-us-east-1}"
@@ -55,6 +58,30 @@ get_ssm_value() {
   local path="$1"
   aws_cli ssm get-parameter --with-decryption --name "${path:-}" \
     --query "Parameter.Value" --output text 2>/dev/null || echo ""
+}
+
+# ============================================================
+# 🧠 Util: detecção de parâmetro de saída do Prowler
+# ============================================================
+choose_output_flag() {
+  # Retorna em duas variáveis globais: OUTPUT_FLAG e OUTPUT_VALUE
+  # -M (moderno: 4.x/5.x/6.x)  | csv,html,json-asff
+  # --output-formats (legado: 3.x) | csv html json-asff
+  local HELP
+  HELP="$(prowler aws -h 2>&1 || true)"
+  if echo "$HELP" | grep -q '\-M'; then
+    OUTPUT_FLAG="-M"
+    OUTPUT_VALUE="csv,html,json-asff"
+    log "INFO" "🧩 Using modern flag: '-M csv,html,json-asff'."
+  elif echo "$HELP" | grep -q 'output-formats'; then
+    OUTPUT_FLAG="--output-formats"
+    OUTPUT_VALUE="csv html json-asff"
+    log "INFO" "🧩 Using legacy flag: '--output-formats csv html json-asff'."
+  else
+    OUTPUT_FLAG=""
+    OUTPUT_VALUE=""
+    log "WARN" "⚠️ No output flag supported (-M / --output-formats). Will proceed with tool defaults."
+  fi
 }
 
 # ============================================================
@@ -101,29 +128,48 @@ authenticate() {
 
     log "INFO" "✅ AWS authentication completed. Running Agentic Cloud Assessment..."
 
-    # === Detect prowler version ===
-    PROWLER_VERSION="$(prowler --version 2>/dev/null || echo 'unknown')"
+    # === Detect prowler version & output flags ===
+    PROWLER_VERSION="$(prowler --version 2>/dev/null | head -n1 | tr -d '\r' || echo 'unknown')"
     log "INFO" "🔍 Detected Prowler version: ${PROWLER_VERSION}"
-    if echo "$PROWLER_VERSION" | grep -qE '4\.[0-9]'; then
-      log "INFO" "🧩 Detected Prowler 4.x — using '-M csv,html,json-asff'"
-      OUTPUT_CMD=(-M csv,html,json-asff)
-    else
-      log "INFO" "🧩 Detected Prowler 3.x — using '--output-formats csv html json-asff'"
-      OUTPUT_CMD=(--output-formats csv html json-asff)
-    fi
+    OUTPUT_FLAG=""; OUTPUT_VALUE=""
+    choose_output_flag
 
-    # === Run Prowler ===
-    prowler aws \
-      "${OUTPUT_CMD[@]}" \
-      --compliance aws_well_architected_framework_reliability_pillar_aws \
-      aws_well_architected_framework_security_pillar_aws \
-      iso27001_2022_aws mitre_attack_aws nist_800_53_revision_5_aws \
-      prowler_threatscore_aws soc2_aws \
-      --output-filename "agentic-mcsp-aws-${ACCOUNT_ID}.json" \
-      --output-directory "$OUTPUT_DIR" \
-      --no-banner \
-      --log-level "$LOG_LEVEL" \
-      || log "WARN" "⚠️ Partial failure during AWS scan"
+    # === First attempt (chosen flag) ===
+    if ! prowler aws \
+        ${OUTPUT_FLAG:+$OUTPUT_FLAG $OUTPUT_VALUE} \
+        --compliance aws_well_architected_framework_reliability_pillar_aws \
+        aws_well_architected_framework_security_pillar_aws \
+        iso27001_2022_aws mitre_attack_aws nist_800_53_revision_5_aws \
+        prowler_threatscore_aws soc2_aws \
+        --output-filename "agentic-mcsp-aws-${ACCOUNT_ID}.json" \
+        --output-directory "$OUTPUT_DIR" \
+        --no-banner \
+        --log-level "$LOG_LEVEL"; then
+
+      log "WARN" "⚠️ First scan attempt failed. Retrying with fallback syntax..."
+      # === Fallback: swap flags ===
+      if [[ "$OUTPUT_FLAG" == "-M" ]]; then
+        prowler aws --output-formats csv html json-asff \
+          --compliance aws_well_architected_framework_reliability_pillar_aws \
+          aws_well_architected_framework_security_pillar_aws \
+          iso27001_2022_aws mitre_attack_aws nist_800_53_revision_5_aws \
+          prowler_threatscore_aws soc2_aws \
+          --output-filename "agentic-mcsp-aws-${ACCOUNT_ID}.json" \
+          --output-directory "$OUTPUT_DIR" \
+          --no-banner \
+          --log-level "$LOG_LEVEL" || log "WARN" "⚠️ Partial failure during AWS scan (fallback mode)"
+      else
+        prowler aws -M csv,html,json-asff \
+          --compliance aws_well_architected_framework_reliability_pillar_aws \
+          aws_well_architected_framework_security_pillar_aws \
+          iso27001_2022_aws mitre_attack_aws nist_800_53_revision_5_aws \
+          prowler_threatscore_aws soc2_aws \
+          --output-filename "agentic-mcsp-aws-${ACCOUNT_ID}.json" \
+          --output-directory "$OUTPUT_DIR" \
+          --no-banner \
+          --log-level "$LOG_LEVEL" || log "WARN" "⚠️ Partial failure during AWS scan (fallback mode)"
+      fi
+    fi
     ;;
 
   azure)
@@ -145,19 +191,37 @@ authenticate() {
       return 1
     fi
 
-    PROWLER_VERSION="$(prowler --version 2>/dev/null || echo 'unknown')"
+    PROWLER_VERSION="$(prowler --version 2>/dev/null | head -n1 | tr -d '\r' || echo 'unknown')"
     log "INFO" "🔍 Detected Prowler version: ${PROWLER_VERSION}"
+    OUTPUT_FLAG=""; OUTPUT_VALUE=""
+    choose_output_flag
 
-    log "INFO" "▶️ Running Azure assessment..."
-    prowler azure \
-      --sp-env-auth \
-      -M csv,html,json-asff \
-      --compliance cis_4.0_azure iso27001_2022_azure mitre_attack_azure prowler_threatscore_azure soc2_azure \
-      --output-filename "agentic-mcsp-azure-${ACCOUNT_ID}.json" \
-      --output-directory "$OUTPUT_DIR" \
-      --no-banner \
-      --log-level "$LOG_LEVEL" \
-      || log "WARN" "⚠️ Partial failure in Azure scan"
+    if ! prowler azure \
+        ${OUTPUT_FLAG:+$OUTPUT_FLAG $OUTPUT_VALUE} \
+        --sp-env-auth \
+        --compliance cis_4.0_azure iso27001_2022_azure mitre_attack_azure prowler_threatscore_azure soc2_azure \
+        --output-filename "agentic-mcsp-azure-${ACCOUNT_ID}.json" \
+        --output-directory "$OUTPUT_DIR" \
+        --no-banner \
+        --log-level "$LOG_LEVEL"; then
+
+      log "WARN" "⚠️ First Azure scan attempt failed. Trying fallback syntax..."
+      if [[ "$OUTPUT_FLAG" == "-M" ]]; then
+        prowler azure --sp-env-auth --output-formats csv html json-asff \
+          --compliance cis_4.0_azure iso27001_2022_azure mitre_attack_azure prowler_threatscore_azure soc2_azure \
+          --output-filename "agentic-mcsp-azure-${ACCOUNT_ID}.json" \
+          --output-directory "$OUTPUT_DIR" \
+          --no-banner \
+          --log-level "$LOG_LEVEL" || log "WARN" "⚠️ Partial failure in Azure scan (fallback mode)"
+      else
+        prowler azure -M csv,html,json-asff --sp-env-auth \
+          --compliance cis_4.0_azure iso27001_2022_azure mitre_attack_azure prowler_threatscore_azure soc2_azure \
+          --output-filename "agentic-mcsp-azure-${ACCOUNT_ID}.json" \
+          --output-directory "$OUTPUT_DIR" \
+          --no-banner \
+          --log-level "$LOG_LEVEL" || log "WARN" "⚠️ Partial failure in Azure scan (fallback mode)"
+      fi
+    fi
     ;;
 
   gcp)
@@ -187,20 +251,41 @@ authenticate() {
       return 1
     fi
 
-    PROWLER_VERSION="$(prowler --version 2>/dev/null || echo 'unknown')"
+    PROWLER_VERSION="$(prowler --version 2>/dev/null | head -n1 | tr -d '\r' || echo 'unknown')"
     log "INFO" "🔍 Detected Prowler version: ${PROWLER_VERSION}"
+    OUTPUT_FLAG=""; OUTPUT_VALUE=""
+    choose_output_flag
 
-    log "INFO" "▶️ Running GCP assessment..."
-    prowler gcp \
-      -M csv,html,json-asff \
-      --project-id "$ACCOUNT_ID" \
-      --compliance cis_4.0_gcp iso27001_2022_gcp mitre_attack_gcp prowler_threatscore_gcp soc2_gcp \
-      --output-filename "agentic-mcsp-gcp-${ACCOUNT_ID}.json" \
-      --output-directory "$OUTPUT_DIR" \
-      --skip-api-check \
-      --no-banner \
-      --log-level "$LOG_LEVEL" \
-      || log "WARN" "⚠️ Partial failure in GCP scan"
+    if ! prowler gcp \
+        ${OUTPUT_FLAG:+$OUTPUT_FLAG $OUTPUT_VALUE} \
+        --project-id "$ACCOUNT_ID" \
+        --compliance cis_4.0_gcp iso27001_2022_gcp mitre_attack_gcp prowler_threatscore_gcp soc2_gcp \
+        --output-filename "agentic-mcsp-gcp-${ACCOUNT_ID}.json" \
+        --output-directory "$OUTPUT_DIR" \
+        --skip-api-check \
+        --no-banner \
+        --log-level "$LOG_LEVEL"; then
+
+      log "WARN" "⚠️ First GCP scan attempt failed. Trying fallback syntax..."
+      if [[ "$OUTPUT_FLAG" == "-M" ]]; then
+        prowler gcp --project-id "$ACCOUNT_ID" --output-formats csv html json-asff \
+          --compliance cis_4.0_gcp iso27001_2022_gcp mitre_attack_gcp prowler_threatscore_gcp soc2_gcp \
+          --output-filename "agentic-mcsp-gcp-${ACCOUNT_ID}.json" \
+          --output-directory "$OUTPUT_DIR" \
+          --skip-api-check \
+          --no-banner \
+          --log-level "$LOG_LEVEL" || log "WARN" "⚠️ Partial failure in GCP scan (fallback mode)"
+      else
+        prowler gcp --project-id "$ACCOUNT_ID" -M csv,html,json-asff \
+          --compliance cis_4.0_gcp iso27001_2022_gcp mitre_attack_gcp prowler_threatscore_gcp soc2_gcp \
+          --output-filename "agentic-mcsp-gcp-${ACCOUNT_ID}.json" \
+          --output-directory "$OUTPUT_DIR" \
+          --skip-api-check \
+          --no-banner \
+          --log-level "$LOG_LEVEL" || log "WARN" "⚠️ Partial failure in GCP scan (fallback mode)"
+      fi
+    fi
+
     rm -f "$TMP_KEY" || true
     ;;
   esac
@@ -217,6 +302,7 @@ fi
 TIMESTAMP=$(date -u +"%Y%m%dT%H%M%SZ")
 S3_PATH="s3://${S3_BUCKET}/${CLIENT_NAME}/${CLOUD_PROVIDER}/${ACCOUNT_ID}/${TIMESTAMP}/"
 
+# garante uso de binários do container
 export PATH=/usr/local/bin:/usr/bin:/bin
 
 log "INFO" "♻️ Reverting credentials to ECS Task Role for upload..."
