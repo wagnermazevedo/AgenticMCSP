@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
 # ============================================================
-# Agentic Multi Cloud Security Assessment Runner - v4.1.9
+# Agentic Multi Cloud Security Assessment Runner - v4.1.9-revA
 # Author: Wagner Azevedo
 # Created on: 2025-10-22T00:29:00Z
 # Changes in this revision:
+# - Added explicit log of the detected Prowler version before execution.
 # - FIX: automatic detection of Prowler 3.x/4.x parameter syntax.
-# - FIX: replaced ---output-formats → dynamic version-safe call.
 # - IMPROVED: detailed logging, duration, and S3 upload feedback.
 # ============================================================
 
@@ -17,7 +17,7 @@ CREATED_AT="2025-10-22T00:29:00Z"
 SESSION_ID=$(uuidgen 2>/dev/null || cat /proc/sys/kernel/random/uuid)
 START_TIME=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
 START_TS=$(date +%s)
-VERSION_REV="v4.1.9-$START_TIME"
+VERSION_REV="v4.1.9-revA-$START_TIME"
 
 echo "[RUNNER:$SESSION_ID] $START_TIME [INFO] 🧭 Starting the Multicloud Assessment Runner $VERSION_REV (created in $CREATED_AT)"
 
@@ -102,7 +102,8 @@ authenticate() {
     log "INFO" "✅ AWS authentication completed. Running Agentic Cloud Assessment..."
 
     # === Detect prowler version ===
-    PROWLER_VERSION="$(prowler --version 2>/dev/null || true)"
+    PROWLER_VERSION="$(prowler --version 2>/dev/null || echo 'unknown')"
+    log "INFO" "🔍 Detected Prowler version: ${PROWLER_VERSION}"
     if echo "$PROWLER_VERSION" | grep -qE '4\.[0-9]'; then
       log "INFO" "🧩 Detected Prowler 4.x — using '-M csv,html,json-asff'"
       OUTPUT_CMD=(-M csv,html,json-asff)
@@ -144,6 +145,9 @@ authenticate() {
       return 1
     fi
 
+    PROWLER_VERSION="$(prowler --version 2>/dev/null || echo 'unknown')"
+    log "INFO" "🔍 Detected Prowler version: ${PROWLER_VERSION}"
+
     log "INFO" "▶️ Running Azure assessment..."
     prowler azure \
       --sp-env-auth \
@@ -182,6 +186,9 @@ authenticate() {
       log "ERROR" "❌ GCP authentication failed."
       return 1
     fi
+
+    PROWLER_VERSION="$(prowler --version 2>/dev/null || echo 'unknown')"
+    log "INFO" "🔍 Detected Prowler version: ${PROWLER_VERSION}"
 
     log "INFO" "▶️ Running GCP assessment..."
     prowler gcp \
