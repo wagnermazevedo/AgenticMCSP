@@ -19,13 +19,12 @@ phases:
     commands:
       - echo "=== [LOGIN] ECR authentication  ==="
       - echo "Repositório alvo: $ECR_REPO"
-      - |
-        if aws ecr get-login-password --region $AWS_DEFAULT_REGION | docker login --username AWS --password-stdin $ECR_REPO; then
-          echo "✅ Login no ECR realizado com sucesso."
-        else
-          echo "❌ Falha no login do ECR. Verifique permissões (ecr:GetAuthorizationToken)."
-          exit 1
-        fi
+      - echo "Fazendo login no ECR..."
+      - >
+        aws ecr get-login-password --region $AWS_DEFAULT_REGION |
+        docker login --username AWS --password-stdin $ECR_REPO ||
+        { echo "❌ Falha no login do ECR. Verifique permissões (ecr:GetAuthorizationToken)."; exit 1; }
+      - echo "✅ Login no ECR realizado com sucesso."
 
   build:
     commands:
@@ -38,12 +37,3 @@ phases:
 
   post_build:
     commands:
-      - echo "=== [PUSH] Pushing image to ECR ==="
-      - docker push $ECR_REPO:latest || { echo "❌ Falha no push da imagem."; exit 1; }
-      - echo "=== [VERIFY] Validando imagem enviada ==="
-      - aws ecr describe-images --repository-name agenticmcsp-repo --region $AWS_DEFAULT_REGION --query 'imageDetails[].imageTags' --output table
-      - echo "✅ Build completo e imagem enviada com sucesso em $(date -u +"%Y-%m-%dT%H:%M:%SZ")"
-
-artifacts:
-  files:
-    - '**/*'
