@@ -1,6 +1,5 @@
 # ============================================================
-# MultiCloud Assessment Runner - FIXED
-# Base: Official Prowler image (override old Poetry virtualenv)
+# MultiCloud Assessment Runner - FIXED (Python/Prowler 4.x)
 # ============================================================
 FROM public.ecr.aws/prowler-cloud/prowler:latest
 LABEL maintainer="Wagner Azevedo"
@@ -12,17 +11,16 @@ USER root
 RUN apt-get update -y && \
     apt-get install -y --no-install-recommends \
         git jq curl unzip bash wget ca-certificates gnupg lsb-release \
-        apt-transport-https dos2unix uuid-runtime awscli && \
+        apt-transport-https dos2unix uuid-runtime python3-pip && \
     rm -rf /var/lib/apt/lists/*
 
 # === Corrige PATH e remove virtualenv antigo ===
 RUN rm -rf /home/prowler/.cache/pypoetry || true
 ENV PATH="/usr/local/bin:/usr/bin:/bin"
 
-# === Instala versão atual do Prowler ===
-RUN git clone --depth 1 https://github.com/prowler-cloud/prowler.git /opt/prowler && \
-    cd /opt/prowler && pip install -r requirements.txt && \
-    ln -sf /opt/prowler/prowler /usr/local/bin/prowler
+# === Instala versão atual do Prowler (via PyPI oficial) ===
+RUN pip install --no-cache-dir prowler-cloud && \
+    ln -sf $(which prowler) /usr/local/bin/prowler
 
 # === Copia scripts ===
 COPY entrypoint.sh /usr/local/bin/entrypoint.sh
