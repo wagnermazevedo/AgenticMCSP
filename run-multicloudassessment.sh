@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ============================================================
-# Agentic Multi Cloud Security Assessment Runner - v4.2.2 (fixed)
+# Agentic Multi Cloud Security Assessment Runner - v4.2.3 (fixed)
 # Author: Wagner Azevedo
 # Created on: 2025-10-22T00:29:00Z
 # Changes in this revision:
@@ -70,7 +70,7 @@ run_prowler_safe() {
 
   HELP_OUTPUT="$(prowler $provider -h 2>&1 || true)"
   if echo "$HELP_OUTPUT" | grep -q '\-M'; then
-    OUTPUT_FLAG="-M csv,html,json-asff"
+    OUTPUT_FLAG="-M csv html json-asff"
     log "INFO" "🧩 Using modern syntax: '$OUTPUT_FLAG'"
   elif echo "$HELP_OUTPUT" | grep -q 'output-formats'; then
     OUTPUT_FLAG="--output-formats csv html json-asff"
@@ -90,7 +90,7 @@ run_prowler_safe() {
   if ! eval "$COMMAND"; then
     log "WARN" "⚠️ Primary syntax failed. Retrying with fallback..."
     if [[ "$OUTPUT_FLAG" == *"--output-formats"* ]]; then
-      eval "prowler ${provider} -M csv,html,json-asff ${extras} --output-filename ${filename} --output-directory ${output_dir} --no-banner --log-level ${LOG_LEVEL}" \
+      eval "prowler ${provider} -M csv html json-asff ${extras} --output-filename ${filename} --output-directory ${output_dir} --no-banner --log-level ${LOG_LEVEL}" \
         || log "WARN" "⚠️ Partial failure in fallback mode (-M)."
     else
       eval "prowler ${provider} --output-formats csv html json-asff ${extras} --output-filename ${filename} --output-directory ${output_dir} --no-banner --log-level ${LOG_LEVEL}" \
